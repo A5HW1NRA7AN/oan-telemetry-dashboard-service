@@ -435,46 +435,50 @@ const getDeviceGraph = async (req, res) => {
 
     const query = {
       text: `
-            WITH device_activity AS (
+            WITH
+total_users_by_bucket AS (
   SELECT
     ${questionDateGrouping} AS bucket_date,
-    q.fingerprint_id,
-    ${userDateGrouping} AS first_seen_bucket
+    COUNT(DISTINCT q.fingerprint_id) AS total_users
   FROM questions q
-  LEFT JOIN users u ON u.fingerprint_id = q.fingerprint_id
   WHERE q.fingerprint_id IS NOT NULL
     AND q.ets >= $1
     AND q.ets <= $2
+  GROUP BY bucket_date
 ),
-aggregated AS (
+new_users_by_bucket AS (
   SELECT
-    bucket_date,
-    fingerprint_id,
-    MIN(first_seen_bucket) AS first_seen_bucket
-  FROM device_activity
-  GROUP BY bucket_date, fingerprint_id
+    ${userDateGrouping} AS bucket_date,
+    COUNT(DISTINCT u.fingerprint_id) AS new_users
+  FROM users u
+  WHERE u.fingerprint_id IS NOT NULL
+    AND u.first_seen_at >= $3
+    AND u.first_seen_at <= $4
+  GROUP BY bucket_date
+),
+merged AS (
+  SELECT
+    COALESCE(t.bucket_date, n.bucket_date) AS bucket_date,
+    COALESCE(t.total_users, 0) AS total_users,
+    COALESCE(n.new_users, 0) AS new_users
+  FROM total_users_by_bucket t
+  FULL OUTER JOIN new_users_by_bucket n
+    ON t.bucket_date = n.bucket_date
 )
 SELECT
   TO_CHAR(bucket_date, 'YYYY-MM-DD') AS date,
-  COUNT(DISTINCT fingerprint_id) AS "uniqueUsersCount",
-  COUNT(DISTINCT CASE
-    WHEN first_seen_bucket IS NOT NULL
-     AND first_seen_bucket = bucket_date
-    THEN fingerprint_id
-  END) AS "newUsersCount",
-  COUNT(DISTINCT CASE
-    WHEN first_seen_bucket IS NULL
-      OR first_seen_bucket < bucket_date
-    THEN fingerprint_id
-  END) AS "returningUsersCount",
+  total_users AS uniqueUsersCount,
+  new_users AS newUsersCount,
+  (total_users - new_users) AS returningUsersCount,
   EXTRACT(EPOCH FROM bucket_date) * 1000 AS timestamp
-FROM aggregated
-GROUP BY bucket_date
+FROM merged
 ORDER BY bucket_date ASC;
             `,
       values: [
-        startTimestamp ?? null, // $1 → q.ets start (ms)
-        endTimestamp ?? null, // $2 → q.ets end (ms)
+        startTimestamp ?? null,                 // $1 → q.ets start (ms)
+        endTimestamp ?? null,                   // $2 → q.ets end (ms)
+        startTimestamp ? new Date(startTimestamp) : null, // $3 → users start
+        endTimestamp ? new Date(endTimestamp) : null,     // $4 → users end
       ],
     };
 
