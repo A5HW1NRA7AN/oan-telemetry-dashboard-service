@@ -456,18 +456,6 @@ new_users_by_bucket AS (
     AND u.first_seen_at <= $4
   GROUP BY bucket_date
 ),
-returning_users_by_bucket AS (
-  SELECT
-    ${questionDateGrouping} AS bucket_date,
-    COUNT(DISTINCT q.fingerprint_id) AS returning_users
-  FROM questions q
-  JOIN users u ON u.fingerprint_id = q.fingerprint_id
-  WHERE q.fingerprint_id IS NOT NULL
-    AND q.ets >= $1
-    AND q.ets <= $2
-    AND NOT (u.first_seen_at >= $3 AND u.first_seen_at <= $4)
-  GROUP BY bucket_date
-),
 merged AS (
   SELECT
     COALESCE(t.bucket_date, n.bucket_date) AS bucket_date,
@@ -476,20 +464,12 @@ merged AS (
   FROM total_users_by_bucket t
   FULL OUTER JOIN new_users_by_bucket n
     ON t.bucket_date = n.bucket_date
-  COALESCE(n.bucket_date, r.bucket_date) AS bucket_date,
-    COALESCE(n.new_users, 0) AS new_users,
-    COALESCE(r.returning_users, 0) AS returning_users
-  FROM new_users_by_bucket n
-  FULL OUTER JOIN returning_users_by_bucket r
-    ON n.bucket_date = r.bucket_date
 )
 SELECT
   TO_CHAR(bucket_date, 'YYYY-MM-DD') AS date,
   total_users AS uniqueUsersCount,
   new_users AS newUsersCount,
   (total_users - new_users) AS returningUsersCount,
-  (new_users + returning_users) AS uniqueUsersCount,
-  returning_users AS returningUsersCount,
   EXTRACT(EPOCH FROM bucket_date) * 1000 AS timestamp
 FROM merged
 ORDER BY bucket_date ASC;
