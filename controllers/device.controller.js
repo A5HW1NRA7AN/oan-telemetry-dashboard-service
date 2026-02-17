@@ -435,52 +435,46 @@ const getDeviceGraph = async (req, res) => {
 
     const query = {
       text: `
-            WITH
-new_users_by_bucket AS (
-  SELECT
-    ${userDateGrouping} AS bucket_date,
-    COUNT(DISTINCT u.fingerprint_id) AS new_users
-  FROM users u
-  WHERE u.fingerprint_id IS NOT NULL
-    AND u.first_seen_at >= $3
-    AND u.first_seen_at <= $4
-  GROUP BY bucket_date
-),
-returning_users_by_bucket AS (
+            WITH device_activity AS (
   SELECT
     ${questionDateGrouping} AS bucket_date,
-    COUNT(DISTINCT q.fingerprint_id) AS returning_users
+    q.fingerprint_id,
+    ${userDateGrouping} AS first_seen_bucket
   FROM questions q
-  JOIN users u ON u.fingerprint_id = q.fingerprint_id
+  LEFT JOIN users u ON u.fingerprint_id = q.fingerprint_id
   WHERE q.fingerprint_id IS NOT NULL
     AND q.ets >= $1
     AND q.ets <= $2
-    AND NOT (u.first_seen_at >= $3 AND u.first_seen_at <= $4)
-  GROUP BY bucket_date
 ),
-merged AS (
+aggregated AS (
   SELECT
-  COALESCE(n.bucket_date, r.bucket_date) AS bucket_date,
-    COALESCE(n.new_users, 0) AS new_users,
-    COALESCE(r.returning_users, 0) AS returning_users
-  FROM new_users_by_bucket n
-  FULL OUTER JOIN returning_users_by_bucket r
-    ON n.bucket_date = r.bucket_date
+    bucket_date,
+    fingerprint_id,
+    MIN(first_seen_bucket) AS first_seen_bucket
+  FROM device_activity
+  GROUP BY bucket_date, fingerprint_id
 )
 SELECT
   TO_CHAR(bucket_date, 'YYYY-MM-DD') AS date,
-  new_users AS newUsersCount,
-  (new_users + returning_users) AS uniqueUsersCount,
-  returning_users AS returningUsersCount,
+  COUNT(DISTINCT fingerprint_id) AS "uniqueUsersCount",
+  COUNT(DISTINCT CASE
+    WHEN first_seen_bucket IS NOT NULL
+     AND first_seen_bucket = bucket_date
+    THEN fingerprint_id
+  END) AS "newUsersCount",
+  COUNT(DISTINCT CASE
+    WHEN first_seen_bucket IS NULL
+      OR first_seen_bucket < bucket_date
+    THEN fingerprint_id
+  END) AS "returningUsersCount",
   EXTRACT(EPOCH FROM bucket_date) * 1000 AS timestamp
-FROM merged
+FROM aggregated
+GROUP BY bucket_date
 ORDER BY bucket_date ASC;
             `,
       values: [
-        startTimestamp ?? null,                 // $1 → q.ets start (ms)
-        endTimestamp ?? null,                   // $2 → q.ets end (ms)
-        startTimestamp ? new Date(startTimestamp) : null, // $3 → users start
-        endTimestamp ? new Date(endTimestamp) : null,     // $4 → users end
+        startTimestamp ?? null, // $1 → q.ets start (ms)
+        endTimestamp ?? null, // $2 → q.ets end (ms)
       ],
     };
 
