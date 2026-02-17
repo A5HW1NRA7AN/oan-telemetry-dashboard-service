@@ -435,43 +435,44 @@ const getDeviceGraph = async (req, res) => {
 
     const query = {
       text: `
-          WITH active_users AS (
+            WITH
+total_users_by_bucket AS (
   SELECT
     ${questionDateGrouping} AS bucket_date,
-    q.fingerprint_id
+    COUNT(DISTINCT q.fingerprint_id) AS total_users
   FROM questions q
   WHERE q.fingerprint_id IS NOT NULL
-    AND q.ets BETWEEN $1 AND $2
-),
-classified AS (
-  SELECT
-    a.bucket_date,
-    a.fingerprint_id,
-    DATE_TRUNC(
-      '${granularity}',
-      u.first_seen_at AT TIME ZONE 'Asia/Kolkata'
-    ) AS first_seen_bucket
-  FROM active_users a
-  JOIN users u ON u.fingerprint_id = a.fingerprint_id
-),
-aggregated AS (
-  SELECT
-    bucket_date,
-    COUNT(DISTINCT fingerprint_id)
-      FILTER (WHERE first_seen_bucket = bucket_date) AS new_users,
-    COUNT(DISTINCT fingerprint_id)
-      FILTER (WHERE first_seen_bucket < bucket_date) AS returning_users
-  FROM classified
+    AND q.ets >= $1
+    AND q.ets <= $2
   GROUP BY bucket_date
+),
+new_users_by_bucket AS (
+  SELECT
+    ${userDateGrouping} AS bucket_date,
+    COUNT(DISTINCT u.fingerprint_id) AS new_users
+  FROM users u
+  WHERE u.fingerprint_id IS NOT NULL
+    AND u.first_seen_at >= $3
+    AND u.first_seen_at <= $4
+  GROUP BY bucket_date
+),
+merged AS (
+  SELECT
+    COALESCE(t.bucket_date, n.bucket_date) AS bucket_date,
+    COALESCE(t.total_users, 0) AS total_users,
+    COALESCE(n.new_users, 0) AS new_users
+  FROM total_users_by_bucket t
+  FULL OUTER JOIN new_users_by_bucket n
+    ON t.bucket_date = n.bucket_date
 )
 SELECT
-  ${finalDateFormat} AS date,
-  (new_users + returning_users) AS uniqueUsersCount,
+  TO_CHAR(bucket_date, 'YYYY-MM-DD') AS date,
+  total_users AS uniqueUsersCount,
   new_users AS newUsersCount,
-  returning_users AS returningUsersCount,
+  (total_users - new_users) AS returningUsersCount,
   EXTRACT(EPOCH FROM bucket_date) * 1000 AS timestamp
-FROM aggregated
-ORDER BY bucket_date;
+FROM merged
+ORDER BY bucket_date ASC;
             `,
       values: [
         startTimestamp ?? null,                 // $1 → q.ets start (ms)
