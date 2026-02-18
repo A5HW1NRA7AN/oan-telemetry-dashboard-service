@@ -209,40 +209,41 @@ async function getTotalAndNewDevicesCount(
   const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
 
   const query = `
-    WITH total_devices AS (
-      SELECT COUNT(DISTINCT fingerprint_id) AS total
-      FROM questions
-      WHERE fingerprint_id IS NOT NULL
-        AND ets >= $1
-        AND ets <= $2
-    ),
-    new_devices AS (
+    WITH new_devices AS (
       SELECT COUNT(DISTINCT fingerprint_id) AS new
       FROM users
       WHERE fingerprint_id IS NOT NULL
-        AND first_seen_at >= $3
-        AND first_seen_at <= $4
+        AND DATE(first_seen_at) >= DATE(TO_TIMESTAMP($1::bigint / 1000))
+        AND DATE(first_seen_at) <= DATE(TO_TIMESTAMP($2::bigint / 1000))
+    ),
+    returning_devices AS (
+      SELECT COUNT(DISTINCT q.fingerprint_id) AS returning
+      FROM questions q
+      INNER JOIN users u ON q.fingerprint_id = u.fingerprint_id
+      WHERE q.fingerprint_id IS NOT NULL
+        AND q.ets >= $1::bigint
+        AND q.ets <= $2::bigint
+        AND DATE(TO_TIMESTAMP(q.ets / 1000)) != DATE(u.first_seen_at)
     )
     SELECT
-      total_devices.total AS total_users,
-      new_devices.new AS new_users
-    FROM total_devices
-    CROSS JOIN new_devices;
+      new_devices.new AS new_users,
+      returning_devices.returning AS returning_users,
+      (new_devices.new + returning_devices.returning) AS total_users
+    FROM new_devices
+    CROSS JOIN returning_devices;
   `;
 
   const values = [
-    startTimestamp,                  // $1
-    endTimestamp,                    // $2
-    new Date(startTimestamp),         // $3
-    new Date(endTimestamp),           // $4
+    startTimestamp ?? null,                 // $1 → milliseconds
+    endTimestamp ?? null,                   // $2 → milliseconds
   ];
 
   const result = await pool.query(query, values);
   const row = result.rows[0];
-
   return {
-    totalUsers: Number(row.total_users) || 0,
     newUsers: Number(row.new_users) || 0,
+    returningUsers: Number(row.returning_users) || 0,
+    totalUsers: Number(row.total_users) || 0,
   };
 }
 
@@ -287,7 +288,7 @@ const getDevices = async (req, res) => {
       stats: {
         totalUsers: counts.totalUsers,
         newUsers: counts.newUsers,
-        returningUsers: counts.totalUsers - counts.newUsers,
+        returningUsers: counts.returningUsers,
       },
       pagination: {
         page,
@@ -436,49 +437,49 @@ const getDeviceGraph = async (req, res) => {
     const query = {
       text: `
             WITH
-total_users_by_bucket AS (
-  SELECT
-    ${questionDateGrouping} AS bucket_date,
-    COUNT(DISTINCT q.fingerprint_id) AS total_users
-  FROM questions q
-  WHERE q.fingerprint_id IS NOT NULL
-    AND q.ets >= $1
-    AND q.ets <= $2
-  GROUP BY bucket_date
-),
 new_users_by_bucket AS (
   SELECT
     ${userDateGrouping} AS bucket_date,
     COUNT(DISTINCT u.fingerprint_id) AS new_users
   FROM users u
   WHERE u.fingerprint_id IS NOT NULL
-    AND u.first_seen_at >= $3
-    AND u.first_seen_at <= $4
+    AND DATE(u.first_seen_at) >= DATE(TO_TIMESTAMP($1::bigint / 1000))
+    AND DATE(u.first_seen_at) <= DATE(TO_TIMESTAMP($2::bigint / 1000))
+  GROUP BY bucket_date
+),
+returning_users_by_bucket AS (
+  SELECT
+    ${questionDateGrouping} AS bucket_date,
+    COUNT(DISTINCT q.fingerprint_id) AS returning_users
+  FROM questions q
+  INNER JOIN users u ON q.fingerprint_id = u.fingerprint_id
+  WHERE q.fingerprint_id IS NOT NULL
+    AND q.ets >= $1::bigint
+    AND q.ets <= $2::bigint
+    AND DATE(TO_TIMESTAMP(q.ets / 1000)) != DATE(u.first_seen_at)
   GROUP BY bucket_date
 ),
 merged AS (
   SELECT
-    COALESCE(t.bucket_date, n.bucket_date) AS bucket_date,
-    COALESCE(t.total_users, 0) AS total_users,
-    COALESCE(n.new_users, 0) AS new_users
-  FROM total_users_by_bucket t
-  FULL OUTER JOIN new_users_by_bucket n
-    ON t.bucket_date = n.bucket_date
+    COALESCE(n.bucket_date, r.bucket_date) AS bucket_date,
+    COALESCE(n.new_users, 0) AS new_users,
+    COALESCE(r.returning_users, 0) AS returning_users
+  FROM new_users_by_bucket n
+  FULL OUTER JOIN returning_users_by_bucket r
+    ON n.bucket_date = r.bucket_date
 )
 SELECT
   TO_CHAR(bucket_date, 'YYYY-MM-DD') AS date,
-  total_users AS uniqueUsersCount,
+  (new_users + returning_users) AS uniqueUsersCount,
   new_users AS newUsersCount,
-  (total_users - new_users) AS returningUsersCount,
+  returning_users AS returningUsersCount,
   EXTRACT(EPOCH FROM bucket_date) * 1000 AS timestamp
 FROM merged
 ORDER BY bucket_date ASC;
             `,
       values: [
-        startTimestamp ?? null,                 // $1 → q.ets start (ms)
-        endTimestamp ?? null,                   // $2 → q.ets end (ms)
-        startTimestamp ? new Date(startTimestamp) : null, // $3 → users start
-        endTimestamp ? new Date(endTimestamp) : null,     // $4 → users end
+        startTimestamp ?? null,                 // $1 → milliseconds
+        endTimestamp ?? null,                   // $2 → milliseconds
       ],
     };
 
