@@ -158,15 +158,17 @@ const getDashboardStats = async (req, res) => {
       text: `
         WITH user_stats AS (
   SELECT
-    ( SELECT COUNT(DISTINCT fingerprint_id) from questions
-      WHERE fingerprint_id IS NOT NULL
-        AND ets >= $1
-        AND ets <= $2
-     ) AS total_users,   
     ( SELECT COUNT(DISTINCT fingerprint_id) from users
-      WHERE fingerprint_id is not null and first_seen_at >= $3
-        AND first_seen_at <= $4
-    ) AS new_users
+      WHERE fingerprint_id is not null and DATE(first_seen_at) >= DATE($3)
+        AND DATE(first_seen_at) <= DATE($4)
+    ) AS new_users,
+    ( SELECT COUNT(DISTINCT q.fingerprint_id) from questions q
+      INNER JOIN users u ON q.fingerprint_id = u.fingerprint_id
+      WHERE q.fingerprint_id IS NOT NULL
+        AND q.ets >= $1
+        AND q.ets <= $2
+        AND DATE(TO_TIMESTAMP(q.ets / 1000)) != DATE(u.first_seen_at)
+    ) AS returning_users
 ),
 session_stats AS (
   WITH combined_sessions AS (
@@ -215,8 +217,9 @@ feedback_stats AS (
     AND ets <= $2
 )
 SELECT
-  us.total_users,
+  (us.new_users + us.returning_users) AS total_users,
   us.new_users,
+  us.returning_users,
   ss.total_sessions,
   qs.total_questions,
   fs.total_feedback,
@@ -249,6 +252,7 @@ CROSS JOIN feedback_stats fs;
       data: {
         totalUsers: parseInt(stats.total_users) || 0,
         totalNewUsers: parseInt(stats.new_users) || 0,
+        totalReturningUsers: parseInt(stats.returning_users) || 0,
         totalSessions: parseInt(stats.total_sessions) || 0,
         totalQuestions: parseInt(stats.total_questions) || 0,
         totalFeedback: parseInt(stats.total_feedback) || 0,
