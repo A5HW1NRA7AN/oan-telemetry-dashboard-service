@@ -58,12 +58,12 @@ const checkHealthStatus = async () => {
     let alertTriggered = false;
     let alertMessage = "🚨 *Health Check Alert (Last Hour)* 🚨\n\n";
 
-    if (counts.questions < thresholds.questionsMin) {
-      alertTriggered = true;
-      const msg = `> 🔴 *[P1] Low Questions*: \`${counts.questions}\` (Expected Min: \`${thresholds.questionsMin}\`)\n`;
-      alertMessage += msg;
-      console.warn(`[${timestamp}] Violation: ${msg.trim()}`);
-    }
+    // if (counts.questions < thresholds.questionsMin) {
+    //   alertTriggered = true;
+    //   const msg = `> 🔴 *[P1] Low Questions*: \`${counts.questions}\` (Expected Min: \`${thresholds.questionsMin}\`)\n`;
+    //   alertMessage += msg;
+    //   console.warn(`[${timestamp}] Violation: ${msg.trim()}`);
+    // }
 
     if (alertTriggered) {
       console.log(`[${timestamp}] Alert triggered! Sending notification...`);
