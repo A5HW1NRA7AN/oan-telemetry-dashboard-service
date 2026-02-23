@@ -30,10 +30,9 @@ async function fetchTtsFromDB(
       apitype,
       apiservice,
       channel,
-      created_at,
       ets
     FROM tts_details
-    WHERE 1=1
+    WHERE ets IS NOT NULL
   `;
 
   const queryParams = [];
@@ -63,12 +62,12 @@ async function fetchTtsFromDB(
     queryParams.push(`%${search.trim()}%`);
   }
 
-  const sortArray = ["created_at", "sid", "language", "latencyms", "statuscode", "success"];
+  const sortArray = ["ets", "sid", "language", "latencyms", "statuscode", "success"];
 
   if (sortArray.includes(sortBy)) {
     query += ` ORDER BY ${sortBy} ${sortOrder}`;
   } else {
-    query += ` ORDER BY created_at DESC`;
+    query += ` ORDER BY ets DESC`;
   }
 
   paramIndex++;
@@ -89,7 +88,7 @@ async function getTtsCount(search = "", startDate = null, endDate = null) {
   let query = `
     SELECT COUNT(*) as total
     FROM tts_details
-    WHERE 1=1
+    WHERE ets IS NOT NULL
   `;
 
   const queryParams = [];
@@ -132,7 +131,7 @@ async function getTtsStats(startDate = null, endDate = null) {
       SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as success_count,
       ROUND(AVG(latencyms)) as avg_latency
     FROM tts_details
-    WHERE 1=1
+    WHERE ets IS NOT NULL
   `;
 
   const queryParams = [];
@@ -163,15 +162,7 @@ async function getTtsStats(startDate = null, endDate = null) {
 }
 
 function formatTtsRecord(row) {
-  let createdAt = null;
-  if (row.created_at) {
-    const timestamp = parseInt(row.created_at);
-    if (!isNaN(timestamp)) {
-      createdAt = formatDateToIST(timestamp);
-    } else {
-      createdAt = formatDateToIST(new Date(row.created_at).getTime());
-    }
-  }
+  const createdAt = row.ets ? formatDateToIST(parseInt(row.ets)) : null;
 
   return {
     id: row.id,
