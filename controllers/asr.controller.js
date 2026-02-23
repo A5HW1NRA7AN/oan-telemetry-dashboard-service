@@ -1,0 +1,263 @@
+const pool = require("../services/db");
+const {
+  formatDateToIST,
+  parseDateRange,
+} = require("../utils/dateUtils");
+
+async function fetchAsrFromDB(
+  page = 1,
+  limit = 10,
+  search = "",
+  startDate = null,
+  endDate = null,
+  sortBy = null,
+  sortOrder = "DESC",
+) {
+  const offset = (page - 1) * limit;
+  const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
+
+  let query = `
+    SELECT
+      id,
+      sid,
+      language,
+      text,
+      success,
+      latencyms,
+      statuscode,
+      errorcode,
+      errormessage,
+      apitype,
+      apiservice,
+      channel,
+      created_at,
+      ets
+    FROM asr_details
+    WHERE 1=1
+  `;
+
+  const queryParams = [];
+  let paramIndex = 0;
+
+  if (startTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
+  }
+
+  if (endTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
+  }
+
+  if (search && search.trim() !== "") {
+    paramIndex++;
+    query += ` AND (
+      sid ILIKE $${paramIndex} OR
+      language ILIKE $${paramIndex} OR
+      text ILIKE $${paramIndex} OR
+      apitype ILIKE $${paramIndex} OR
+      apiservice ILIKE $${paramIndex}
+    )`;
+    queryParams.push(`%${search.trim()}%`);
+  }
+
+  const sortArray = ["created_at", "sid", "language", "latencyms", "statuscode", "success"];
+
+  if (sortArray.includes(sortBy)) {
+    query += ` ORDER BY ${sortBy} ${sortOrder}`;
+  } else {
+    query += ` ORDER BY created_at DESC`;
+  }
+
+  paramIndex++;
+  query += ` LIMIT $${paramIndex}`;
+  queryParams.push(limit);
+
+  paramIndex++;
+  query += ` OFFSET $${paramIndex}`;
+  queryParams.push(offset);
+
+  const result = await pool.query(query, queryParams);
+  return result.rows;
+}
+
+async function getAsrCount(search = "", startDate = null, endDate = null) {
+  const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
+
+  let query = `
+    SELECT COUNT(*) as total
+    FROM asr_details
+    WHERE 1=1
+  `;
+
+  const queryParams = [];
+  let paramIndex = 0;
+
+  if (startTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
+  }
+
+  if (endTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
+  }
+
+  if (search && search.trim() !== "") {
+    paramIndex++;
+    query += ` AND (
+      sid ILIKE $${paramIndex} OR
+      language ILIKE $${paramIndex} OR
+      text ILIKE $${paramIndex} OR
+      apitype ILIKE $${paramIndex} OR
+      apiservice ILIKE $${paramIndex}
+    )`;
+    queryParams.push(`%${search.trim()}%`);
+  }
+
+  const result = await pool.query(query, queryParams);
+  return parseInt(result.rows[0].total);
+}
+
+async function getAsrStats(startDate = null, endDate = null) {
+  const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
+
+  let query = `
+    SELECT
+      COUNT(*) as total_calls,
+      SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as success_count,
+      ROUND(AVG(latencyms)) as avg_latency
+    FROM asr_details
+    WHERE 1=1
+  `;
+
+  const queryParams = [];
+  let paramIndex = 0;
+
+  if (startTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
+  }
+
+  if (endTimestamp !== null) {
+    paramIndex++;
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
+  }
+
+  const result = await pool.query(query, queryParams);
+  const row = result.rows[0];
+  const totalCalls = parseInt(row.total_calls) || 0;
+  const successCount = parseInt(row.success_count) || 0;
+  return {
+    totalCalls,
+    successCount,
+    successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0,
+    avgLatency: parseInt(row.avg_latency) || 0,
+  };
+}
+
+function formatAsrRecord(row) {
+  let createdAt = null;
+  if (row.created_at) {
+    const timestamp = parseInt(row.created_at);
+    if (!isNaN(timestamp)) {
+      createdAt = formatDateToIST(timestamp);
+    } else {
+      createdAt = formatDateToIST(new Date(row.created_at).getTime());
+    }
+  }
+
+  return {
+    id: row.id,
+    sid: row.sid,
+    language: row.language,
+    text: row.text,
+    success: row.success,
+    latencyMs: row.latencyms,
+    statusCode: row.statuscode,
+    errorCode: row.errorcode,
+    errorMessage: row.errormessage,
+    apiType: row.apitype,
+    apiService: row.apiservice,
+    channel: row.channel,
+    createdAt,
+    ets: row.ets,
+  };
+}
+
+const getAsr = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+    const search = req.query.search ? String(req.query.search).trim() : "";
+    const startDate = req.query.startDate ? String(req.query.startDate).trim() : null;
+    const endDate = req.query.endDate ? String(req.query.endDate).trim() : null;
+    const sortBy = req.query.sortBy;
+    const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
+
+    if (search.length > 1000) {
+      return res.status(400).json({ message: "Search term too long" });
+    }
+
+    const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
+    if (
+      (startDate && startTimestamp === null) ||
+      (endDate && endTimestamp === null)
+    ) {
+      return res.status(400).json({
+        message: "Invalid date format. Use ISO date string (YYYY-MM-DD) or unix timestamp",
+      });
+    }
+
+    if (startTimestamp && endTimestamp && startTimestamp > endTimestamp) {
+      return res.status(400).json({ message: "Start date cannot be after end date" });
+    }
+
+    const [rawData, totalCount, stats] = await Promise.all([
+      fetchAsrFromDB(page, limit, search, startDate, endDate, sortBy, sortOrder),
+      getAsrCount(search, startDate, endDate),
+      getAsrStats(startDate, endDate),
+    ]);
+
+    const formattedData = rawData.map(formatAsrRecord);
+
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPreviousPage = page > 1;
+
+    res.status(200).json({
+      data: formattedData,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: totalCount,
+        itemsPerPage: limit,
+        hasNextPage,
+        hasPreviousPage,
+        nextPage: hasNextPage ? page + 1 : null,
+        previousPage: hasPreviousPage ? page - 1 : null,
+      },
+      stats,
+      filters: {
+        search,
+        startDate,
+        endDate,
+        appliedStartTimestamp: startTimestamp,
+        appliedEndTimestamp: endTimestamp,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching ASR data:", error);
+    res.status(500).json({ message: "Internal server error", error: error.message });
+  }
+};
+
+module.exports = {
+  getAsr,
+};
