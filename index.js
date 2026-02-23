@@ -14,7 +14,9 @@ const authController = require("./controllers/auth.controller");
 const leaderboardRoutes = require("./routes/leaderboard.Routes");
 const deviceRoutes = require("./routes/deviceRoutes");
 const villageRoutes = require("./routes/villageRoutes");
+const chatHealthRoutes = require("./routes/chatHealthRoutes");
 const leaderboardAuthController = require("./controllers/leaderboardAuth.controller");
+const { runChatHealthCheck, runVoiceHealthCheck } = require("./services/chatHealthCheck");
 const pool = require("./services/db");
 const app = express();
 
@@ -125,11 +127,37 @@ cron.schedule("0 * * * *", async () => {
   }
 });
 
+// Schedule chat-vistaar text API health check every 15 minutes
+const chatHealthCronInterval = process.env.CHAT_HEALTH_CHECK_CRON || "*/15 * * * *";
+cron.schedule(chatHealthCronInterval, async () => {
+  console.log("Running scheduled chat-vistaar text health check...");
+  try {
+    await runChatHealthCheck();
+  } catch (error) {
+    console.error("Scheduled chat health check failed:", error);
+  }
+});
+
+// Schedule chat-vistaar voice API health check every 15 minutes
+const voiceHealthCronInterval = process.env.VOICE_HEALTH_CHECK_CRON || "*/15 * * * *";
+cron.schedule(voiceHealthCronInterval, async () => {
+  console.log("Running scheduled chat-vistaar voice health check...");
+  try {
+    await runVoiceHealthCheck();
+  } catch (error) {
+    console.error("Scheduled voice health check failed:", error);
+  }
+});
+
 app.use("/v1/leaderboard", leaderboardAuthController, leaderboardRoutes);
 // app.use("/", authController, (req, res) => {
 //   res.send("hi welcome");
 // });
 
+// Chat health: status + history are public; run (trigger) requires auth
+// Must be registered BEFORE the auth-protected /v1 middleware so that
+// unauthenticated GET requests are not rejected by authController.
+app.use("/v1", chatHealthRoutes);
 app.use("/v1", authController, questionRoutes);
 app.use("/v1", authController, userRoutes);
 app.use("/v1", authController, deviceRoutes);
