@@ -519,8 +519,13 @@ const getQuestionsBySessionId = async (req, res) => {
       countParams.push(endTimestamp);
     }
 
-    // Add pagination params
-    queryParams.push(limit, offset);
+    // Support pagination=false to return all questions without LIMIT/OFFSET
+    const usePagination = req.query.pagination !== 'false';
+
+    // Add pagination params only when pagination is enabled
+    if (usePagination) {
+      queryParams.push(limit, offset);
+    }
 
     // Get questions by session ID with pagination and date filtering
     const questionsQuery = {
@@ -542,7 +547,7 @@ const getQuestionsBySessionId = async (req, res) => {
                     ${dateFilter}
                     AND ets <= ${Date.now()}
                 ORDER BY ets DESC
-                LIMIT $${paramIndex + 1} OFFSET $${paramIndex + 2}
+                ${usePagination ? `LIMIT $${paramIndex + 1} OFFSET $${paramIndex + 2}` : ''}
             `,
       values: queryParams,
     };
@@ -569,14 +574,12 @@ const getQuestionsBySessionId = async (req, res) => {
     const formattedData = questionsResult.rows.map(formatQuestionData);
 
     // Calculate pagination metadata
-    const totalPages = Math.ceil(totalCount / limit);
-    const hasNextPage = page < totalPages;
-    const hasPreviousPage = page > 1;
-
-    res.status(200).json({
-      success: true,
-      data: formattedData,
-      pagination: {
+    let responsePagination;
+    if (usePagination) {
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPreviousPage = page > 1;
+      responsePagination = {
         currentPage: page,
         totalPages: totalPages,
         totalItems: totalCount,
@@ -585,7 +588,24 @@ const getQuestionsBySessionId = async (req, res) => {
         hasPreviousPage: hasPreviousPage,
         nextPage: hasNextPage ? page + 1 : null,
         previousPage: hasPreviousPage ? page - 1 : null,
-      },
+      };
+    } else {
+      responsePagination = {
+        currentPage: 1,
+        totalPages: 1,
+        totalItems: totalCount,
+        itemsPerPage: totalCount,
+        hasNextPage: false,
+        hasPreviousPage: false,
+        nextPage: null,
+        previousPage: null,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      data: formattedData,
+      pagination: responsePagination,
       filters: {
         sessionId: sessionId.trim(),
         startDate: startDate,
@@ -786,11 +806,10 @@ const getQuestionsGraph = async (req, res) => {
                     COUNT(*) as questionsCount,
               
                     EXTRACT(EPOCH FROM ${dateGrouping}) * 1000 as timestamp,
-                    ${
-                      granularity === "hourly"
-                        ? `EXTRACT(HOUR FROM ${dateGrouping}) as hour_of_day`
-                        : "NULL as hour_of_day"
-                    }
+                    ${granularity === "hourly"
+          ? `EXTRACT(HOUR FROM ${dateGrouping}) as hour_of_day`
+          : "NULL as hour_of_day"
+        }
                 FROM questions
                 WHERE questiontext IS NOT NULL 
                     AND answertext IS NOT NULL
