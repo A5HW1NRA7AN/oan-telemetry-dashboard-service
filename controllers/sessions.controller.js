@@ -1,7 +1,7 @@
 const pool = require('../services/db');
 const { parseDateRange, formatDateToIST, getCurrentTimestamp } = require('../utils/dateUtils');
 
-async function fetchSessionsFromDB(page = 1, limit = 10, search = '', startDate = null, endDate = null, sortBy = null, sortOrder = 'DESC') {
+async function fetchSessionsFromDB(page = 1, limit = 10, search = '', startDate = null, endDate = null, sortBy = null, sortOrder = 'DESC', pagination = true) {
     const offset = (page - 1) * limit;
     const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
 
@@ -73,23 +73,25 @@ async function fetchSessionsFromDB(page = 1, limit = 10, search = '', startDate 
         )`;
         queryParams.push(`%${search.trim()}%`);
     }
-    
-    const sortArray = ["question_count", "username", "session_id", "session_time"];
-  if (sortArray.includes(sortBy)) {
-    query += ` ORDER BY ${sortBy === "session_time" ? "session_time" : sortBy} ${sortOrder}`;
-  } else {
-    query += ` ORDER BY session_time DESC`
-  };
-    
-    // Add pagination
-    paramIndex++;
-    query += ` LIMIT $${paramIndex}`;
-    queryParams.push(limit);
 
-    paramIndex++;
-    query += ` OFFSET $${paramIndex}`;
-    queryParams.push(offset);
- 
+    const sortArray = ["question_count", "username", "session_id", "session_time"];
+    if (sortArray.includes(sortBy)) {
+        query += ` ORDER BY ${sortBy === "session_time" ? "session_time" : sortBy} ${sortOrder}`;
+    } else {
+        query += ` ORDER BY session_time DESC`
+    };
+
+    // Add pagination
+    if (pagination) {
+        paramIndex++;
+        query += ` LIMIT $${paramIndex}`;
+        queryParams.push(limit);
+
+        paramIndex++;
+        query += ` OFFSET $${paramIndex}`;
+        queryParams.push(offset);
+    }
+
     const result = await pool.query(query, queryParams);
     return result.rows;
 }
@@ -205,6 +207,7 @@ function formatSessionData(row) {
 const getSessions = async (req, res) => {
     try {
         // Extract and sanitize pagination parameters from query string
+        const pagination = req.query.pagination !== 'false';
         const page = Math.max(1, parseInt(req.query.page) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
         const search = req.query.search ? String(req.query.search).trim() : '';
@@ -239,22 +242,19 @@ const getSessions = async (req, res) => {
 
         // Fetch paginated sessions data and total count
         const [sessionsData, totalCount] = await Promise.all([
-            fetchSessionsFromDB(page, limit, search, startDate, endDate, sortBy, sortOrder),
+            fetchSessionsFromDB(page, limit, search, startDate, endDate, sortBy, sortOrder, pagination),
             getTotalSessionsCount(search, startDate, endDate)
         ]);
 
         const formattedData = sessionsData.map(formatSessionData);
 
         // Calculate pagination metadata
-        const totalPages = Math.ceil(totalCount / limit);
-        const hasNextPage = page < totalPages;
-        const hasPreviousPage = page > 1;
-
-        // Return paginated response
-        res.status(200).json({
-            success: true,
-            data: formattedData,
-            pagination: {
+        let responsePagination;
+        if (pagination) {
+            const totalPages = Math.ceil(totalCount / limit);
+            const hasNextPage = page < totalPages;
+            const hasPreviousPage = page > 1;
+            responsePagination = {
                 currentPage: page,
                 totalPages: totalPages,
                 totalItems: totalCount,
@@ -263,7 +263,25 @@ const getSessions = async (req, res) => {
                 hasPreviousPage: hasPreviousPage,
                 nextPage: hasNextPage ? page + 1 : null,
                 previousPage: hasPreviousPage ? page - 1 : null
-            },
+            };
+        } else {
+            responsePagination = {
+                currentPage: 1,
+                totalPages: 1,
+                totalItems: totalCount,
+                itemsPerPage: totalCount,
+                hasNextPage: false,
+                hasPreviousPage: false,
+                nextPage: null,
+                previousPage: null
+            };
+        }
+
+        // Return paginated response
+        res.status(200).json({
+            success: true,
+            data: formattedData,
+            pagination: responsePagination,
             filters: {
                 search: search,
                 startDate: startDate,
@@ -735,7 +753,7 @@ const getSessionsGraph = async (req, res) => {
             dateFilter += ` AND ets <= $${paramIndex}`;
             queryParams.push(endTimestamp);
         }
-    
+
 
         // Add search filter if provided
         if (search && search.trim() !== '') {
@@ -748,10 +766,10 @@ const getSessionsGraph = async (req, res) => {
         }
 
         // Exclude future sessions (ets > now)
-let futureFilter = '';
-paramIndex++;
-futureFilter = ` AND ets <= $${paramIndex}`;
-queryParams.push(Date.now());
+        let futureFilter = '';
+        paramIndex++;
+        futureFilter = ` AND ets <= $${paramIndex}`;
+        queryParams.push(Date.now());
 
         // Define the date truncation and formatting based on granularity
         let dateGrouping;
