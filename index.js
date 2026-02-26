@@ -16,6 +16,7 @@ const deviceRoutes = require("./routes/deviceRoutes");
 const villageRoutes = require("./routes/villageRoutes");
 const asrRoutes = require("./routes/asrRoutes");
 const ttsRoutes = require("./routes/ttsRoutes");
+const callRoutes = require("./routes/callRoutes");
 const leaderboardAuthController = require("./controllers/leaderboardAuth.controller");
 const pool = require("./services/db");
 const app = express();
@@ -138,6 +139,7 @@ app.use("/v1", authController, asrRoutes);
 app.use("/v1", authController, ttsRoutes);
 app.use("/v1", authController, errorRoutes);
 app.use("/v1", authController, dashboardRoutes);
+app.use("/v1", authController, callRoutes);
 app.use("/v1/api/villages", villageRoutes);
 app.use(morgan("combined"));
 
