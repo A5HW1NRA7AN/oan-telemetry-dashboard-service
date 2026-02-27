@@ -39,12 +39,15 @@ const checkHealthStatus = async () => {
   console.log(`[${timestamp}] Starting health check...`);
 
   try {
-    const oneHourAgo = Date.now() - 3600000;
+    const oneHourAgo = await Date.now() - 3600000;
 
     const questionsRes = await pool.query(
       "SELECT COUNT(*) FROM questions WHERE ets > $1",
       [oneHourAgo]
     );
+
+    console.log(questionsRes.rows[0]);
+  
 
     const counts = {
       questions: parseInt(questionsRes.rows[0].count),
