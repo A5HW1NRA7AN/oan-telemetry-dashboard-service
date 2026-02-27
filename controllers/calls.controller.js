@@ -188,6 +188,7 @@ const getCallsStats = async (req, res) => {
         const query = `
             SELECT
                 COUNT(DISTINCT c.id)                                     AS total_calls,
+                COUNT(DISTINCT NULLIF(TRIM(c.user_id), ''))              AS total_users,
                 COALESCE(SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END), 0)   AS total_questions,
                 COALESCE(COUNT(m.id), 0)                                         AS total_interactions,
                 ROUND(AVG(c.duration_in_seconds)::NUMERIC, 2)                    AS avg_duration
@@ -203,6 +204,7 @@ const getCallsStats = async (req, res) => {
             success: true,
             data: {
                 totalCalls: parseInt(stats.total_calls) || 0,
+                totalUsers: parseInt(stats.total_users) || 0,
                 totalQuestions: parseInt(stats.total_questions) || 0,
                 totalInteractions: parseInt(stats.total_interactions) || 0,
                 avgDuration: parseFloat(stats.avg_duration) || 0,
