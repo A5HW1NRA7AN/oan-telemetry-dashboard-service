@@ -16,6 +16,7 @@ const deviceRoutes = require("./routes/deviceRoutes");
 const villageRoutes = require("./routes/villageRoutes");
 const asrRoutes = require("./routes/asrRoutes");
 const ttsRoutes = require("./routes/ttsRoutes");
+const callRoutes = require("./routes/callRoutes");
 const leaderboardAuthController = require("./controllers/leaderboardAuth.controller");
 const pool = require("./services/db");
 const app = express();
@@ -63,12 +64,12 @@ const checkHealthStatus = async () => {
     let alertTriggered = false;
     let alertMessage = "🚨 *Health Check Alert (Last Hour)* 🚨\n\n";
 
-    if (counts.questions < thresholds.questionsMin) {
-      alertTriggered = true;
-      const msg = `> 🔴 *[P1] Low Questions*: \`${counts.questions}\` (Expected Min: \`${thresholds.questionsMin}\`)\n`;
-      alertMessage += msg;
-      console.warn(`[${timestamp}] Violation: ${msg.trim()}`);
-    }
+    // if (counts.questions < thresholds.questionsMin) {
+    //   alertTriggered = true;
+    //   const msg = `> 🔴 *[P1] Low Questions*: \`${counts.questions}\` (Expected Min: \`${thresholds.questionsMin}\`)\n`;
+    //   alertMessage += msg;
+    //   console.warn(`[${timestamp}] Violation: ${msg.trim()}`);
+    // }
 
     if (alertTriggered) {
       console.log(`[${timestamp}] Alert triggered! Sending notification...`);
@@ -141,6 +142,7 @@ app.use("/v1", authController, asrRoutes);
 app.use("/v1", authController, ttsRoutes);
 app.use("/v1", authController, errorRoutes);
 app.use("/v1", authController, dashboardRoutes);
+app.use("/v1", authController, callRoutes);
 app.use("/v1/api/villages", villageRoutes);
 app.use(morgan("combined"));
 
