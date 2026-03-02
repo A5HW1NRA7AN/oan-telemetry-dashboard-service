@@ -18,7 +18,7 @@ async function fetchAllErrorsFromDB(
   let query = `
         SELECT 
             id,
-            uid as user_id,
+            fingerprint_id as user_id,
             sid as session_id,
             qid as question_id,
             errortext as error_message,
@@ -33,17 +33,17 @@ async function fetchAllErrorsFromDB(
   const queryParams = [];
   let paramIndex = 0;
 
-  // Add date range filtering using created_at
+  // Add date range filtering using ets (Unix milliseconds)
   if (startTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at >= $${paramIndex}`;
-    queryParams.push(new Date(startTimestamp));
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
   }
 
   if (endTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at <= $${paramIndex}`;
-    queryParams.push(new Date(endTimestamp));
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
   }
 
   // Add search functionality if search term is provided
@@ -59,7 +59,7 @@ async function fetchAllErrorsFromDB(
     queryParams.push(`%${search.trim()}%`);
   }
 
-     const sortArray = ["created_at", "user_id", "session_id", "error_message"];
+  const sortArray = ["created_at", "user_id", "session_id", "error_message", "ets"];
   if (sortArray.includes(sortBy)) {
     query += ` ORDER BY ${sortBy} ${sortOrder}`;
   } else {
@@ -99,14 +99,14 @@ async function getTotalErrorCount(
   // Add date range filtering
   if (startTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at >= $${paramIndex}`;
-    queryParams.push(new Date(startTimestamp));
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
   }
 
   if (endTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at <= $${paramIndex}`;
-    queryParams.push(new Date(endTimestamp));
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
   }
 
   // Add search filter to count query if search term is provided
@@ -145,14 +145,14 @@ async function getErrorStats(search = "", startDate = null, endDate = null) {
   // Add date range filtering
   if (startTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at >= $${paramIndex}`;
-    queryParams.push(new Date(startTimestamp));
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
   }
 
   if (endTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at <= $${paramIndex}`;
-    queryParams.push(new Date(endTimestamp));
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
   }
 
   // Add search filter if search term is provided
@@ -288,7 +288,7 @@ async function fetchErrorByIdFromDB(id) {
   const query = `
         SELECT 
             id,
-            uid as user_id,
+            fingerprint_id as user_id,
             sid as session_id,
             qid as question_id,
             errortext as error_message,
@@ -317,7 +317,7 @@ async function fetchErrorsBySessionIdFromDB(
   let query = `
         SELECT 
             id,
-            uid as user_id,
+            fingerprint_id as user_id,
             sid as session_id,
             qid as question_id,
             errortext as error_message,
@@ -335,14 +335,14 @@ async function fetchErrorsBySessionIdFromDB(
   // Add date range filtering
   if (startTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at >= $${paramIndex}`;
-    queryParams.push(new Date(startTimestamp));
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
   }
 
   if (endTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at <= $${paramIndex}`;
-    queryParams.push(new Date(endTimestamp));
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
   }
 
   query += ` ORDER BY created_at DESC`;
@@ -379,14 +379,14 @@ async function getTotalErrorsCountBySession(
   // Add date range filtering
   if (startTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at >= $${paramIndex}`;
-    queryParams.push(new Date(startTimestamp));
+    query += ` AND ets >= $${paramIndex}`;
+    queryParams.push(startTimestamp);
   }
 
   if (endTimestamp !== null) {
     paramIndex++;
-    query += ` AND created_at <= $${paramIndex}`;
-    queryParams.push(new Date(endTimestamp));
+    query += ` AND ets <= $${paramIndex}`;
+    queryParams.push(endTimestamp);
   }
 
   const result = await pool.query(query, queryParams);
@@ -483,7 +483,7 @@ const getErrorGraph = async (req, res) => {
                     COUNT(DISTINCT sid) as unique_sessions,
                     COUNT(DISTINCT channel) as unique_channels
                 FROM errordetails
-                WHERE created_at >= $1 AND created_at <= $2 AND errortext IS NOT NULL
+                WHERE ets >= $1 AND ets <= $2 AND errortext IS NOT NULL
                 GROUP BY date_trunc('${granularity}', created_at)
             )
             SELECT 
@@ -501,12 +501,11 @@ const getErrorGraph = async (req, res) => {
 
     const queryParams = [];
     if (startTimestamp !== null && endTimestamp !== null) {
-      queryParams.push(new Date(startTimestamp), new Date(endTimestamp));
+      queryParams.push(startTimestamp, endTimestamp);
     } else {
       // Default to last 30 days if no date range provided
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 30);
+      const endDate = Date.now();
+      const startDate = endDate - (30 * 24 * 60 * 60 * 1000); // 30 days ago in milliseconds
       queryParams.push(startDate, endDate);
     }
 
