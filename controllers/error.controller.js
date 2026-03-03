@@ -132,7 +132,7 @@ async function getErrorStats(search = "", startDate = null, endDate = null) {
   let query = `
         SELECT 
             COUNT(*) as total_errors,
-            COUNT(DISTINCT uid) as unique_users,
+            COUNT(DISTINCT fingerprint_id) as unique_users,
             COUNT(DISTINCT sid) as unique_sessions,
             COUNT(DISTINCT channel) as unique_channels
         FROM errordetails
