@@ -129,7 +129,8 @@ async function getTtsStats(startDate = null, endDate = null) {
     SELECT
       COUNT(*) as total_calls,
       SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as success_count,
-      ROUND(AVG(latencyms)) as avg_latency
+      ROUND(AVG(latencyms)) as avg_latency,
+      MAX(latencyms) as max_latency
     FROM tts_details
     WHERE ets IS NOT NULL
   `;
@@ -158,6 +159,7 @@ async function getTtsStats(startDate = null, endDate = null) {
     successCount,
     successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0,
     avgLatency: parseInt(row.avg_latency) || 0,
+    maxLatency: parseInt(row.max_latency) || 0,
   };
 }
 
