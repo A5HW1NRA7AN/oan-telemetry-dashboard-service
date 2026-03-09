@@ -3,7 +3,6 @@ const {
   getVillagesByTalukaUtil,
   getVillagesByDistrictUtil,
 } = require("../middleware/villageMiddleware");
-const { get } = require("../routes/leaderboard.Routes");
 
 // Get top 10 users by taluka, district and state
 

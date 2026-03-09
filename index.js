@@ -18,6 +18,7 @@ const asrRoutes = require("./routes/asrRoutes");
 const ttsRoutes = require("./routes/ttsRoutes");
 const callRoutes = require("./routes/callRoutes");
 const leaderboardAuthController = require("./controllers/leaderboardAuth.controller");
+const llmTelemetryRoutes = require("./routes/llmTelemetryRoutes");
 const pool = require("./services/db");
 const app = express();
 
@@ -47,7 +48,7 @@ const checkHealthStatus = async () => {
     );
 
     console.log(questionsRes.rows[0]);
-  
+
 
     const counts = {
       questions: parseInt(questionsRes.rows[0].count),
@@ -144,6 +145,7 @@ app.use("/v1", authController, errorRoutes);
 app.use("/v1", authController, dashboardRoutes);
 app.use("/v1", authController, callRoutes);
 app.use("/v1/api/villages", villageRoutes);
+app.use("/action/data/v3", llmTelemetryRoutes);
 app.use(morgan("combined"));
 
 const PORT = process.env.PORT || 3000;

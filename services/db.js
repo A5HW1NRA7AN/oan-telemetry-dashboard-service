@@ -15,9 +15,7 @@ const pool = new Pool({
     process.env.DB_CONN_TIMEOUT_MS || "5000",
     10
   ),
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false }
 });
 
 // Prevent unhandled pool errors from crashing the process
