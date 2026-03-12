@@ -1,7 +1,7 @@
 const pool = require('../services/db');
 const { formatUTCToISTDate, formatDateToIST, parseDateRange } = require('../utils/dateUtils');
 
-async function fetchAllFeedbackFromDB(page = 1, limit = 10, search = '', startDate = null, endDate = null, sortBy = null, sortOrder = 'DESC') {
+async function fetchAllFeedbackFromDB(page = 1, limit = 10, search = '', startDate = null, endDate = null, rating = null, sortBy = null, sortOrder = 'DESC') {
     const offset = (page - 1) * limit;
     const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
 
@@ -51,6 +51,12 @@ async function fetchAllFeedbackFromDB(page = 1, limit = 10, search = '', startDa
         queryParams.push(`%${search.trim()}%`);
     }
 
+    if (rating === 'like' || rating === 'dislike') {
+        paramIndex++;
+        query += ` AND feedbacktype = $${paramIndex}`;
+        queryParams.push(rating);
+    }
+
      const sortArray = ['created_at', 'user_id', 'feedbacktype', 'feedbacktext'];
 
          if(sortArray.includes(sortBy)) {
@@ -73,7 +79,7 @@ async function fetchAllFeedbackFromDB(page = 1, limit = 10, search = '', startDa
     return result.rows;
 }
 
-async function getTotalFeedbackCount(search = '', startDate = null, endDate = null) {
+async function getTotalFeedbackCount(search = '', startDate = null, endDate = null, rating = null) {
     const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
 
     let query = `
@@ -110,11 +116,17 @@ async function getTotalFeedbackCount(search = '', startDate = null, endDate = nu
         queryParams.push(`%${search.trim()}%`);
     }
 
+    if (rating === 'like' || rating === 'dislike') {
+        paramIndex++;
+        query += ` AND feedbacktype = $${paramIndex}`;
+        queryParams.push(rating);
+    }
+
     const result = await pool.query(query, queryParams);
     return parseInt(result.rows[0].total);
 }
 
-async function getTotalLikesDislikesCount(search = '', startDate = null, endDate = null, sessionId = null) {
+async function getTotalLikesDislikesCount(search = '', startDate = null, endDate = null, sessionId = null, rating = null) {
     const { startTimestamp, endTimestamp } = parseDateRange(startDate, endDate);
 
     let query = `
@@ -157,6 +169,12 @@ async function getTotalLikesDislikesCount(search = '', startDate = null, endDate
             answertext ILIKE $${paramIndex}
         )`;
         queryParams.push(`%${search.trim()}%`);
+    }
+
+    if (rating === 'like' || rating === 'dislike') {
+        paramIndex++;
+        query += ` AND feedbacktype = $${paramIndex}`;
+        queryParams.push(rating);
     }
 
     const result = await pool.query(query, queryParams);
@@ -209,6 +227,9 @@ async function getAllFeedback(req, res) {
         const search = req.query.search ? String(req.query.search).trim() : '';
         const startDate = req.query.startDate ? String(req.query.startDate).trim() : null;
         const endDate = req.query.endDate ? String(req.query.endDate).trim() : null;
+        const rating = req.query.rating === 'like' || req.query.rating === 'dislike'
+            ? req.query.rating
+            : null;
         const sortBy = req.query.sortBy;
         const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
 
@@ -233,14 +254,14 @@ async function getAllFeedback(req, res) {
 
         // Fetch paginated feedback data and total count
         const [rawFeedbackData, totalCount] = await Promise.all([
-            fetchAllFeedbackFromDB(page, limit, search, startDate, endDate, sortBy, sortOrder),
-            getTotalFeedbackCount(search, startDate, endDate)
+            fetchAllFeedbackFromDB(page, limit, search, startDate, endDate, rating, sortBy, sortOrder),
+            getTotalFeedbackCount(search, startDate, endDate, rating)
         ]);
 
         const formattedFeedback = rawFeedbackData.map(formatFeedbackData);
 
         // Get accurate total likes and dislikes counts for the entire filtered dataset
-        const { totalLikes, totalDislikes } = await getTotalLikesDislikesCount(search, startDate, endDate);
+        const { totalLikes, totalDislikes } = await getTotalLikesDislikesCount(search, startDate, endDate, null, rating);
 
         // Calculate pagination metadata
         const totalPages = Math.ceil(totalCount / limit);
@@ -264,6 +285,7 @@ async function getAllFeedback(req, res) {
             },
             filters: {
                 search: search,
+                rating: rating,
                 startDate: startDate,
                 endDate: endDate,
                 appliedStartTimestamp: startTimestamp,
